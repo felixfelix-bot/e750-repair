@@ -80,19 +80,37 @@ TPROXY itself was also proven in QEMU (`table inet`, `tproxy ip to :12345`,
 mark before tproxy, accept), but on the E750 the ndsRTR drop made REDIRECT the
 reliable path.
 
-## Caveat — the BSBF client and the portal share xray
+## Two-inbound repair
 
-The BSBF client and the portal redirect both use `/etc/xray/config.json`.
-Starting/restarting the BSBF service can reset the config/listener back to
-`127.0.0.1`, which breaks the portal redirect. The production fix is **one xray
-process with two inbounds**:
+One xray process now owns both listeners:
 
-- BSBF tproxy `127.0.0.1:12345` (router traffic)
-- portal `10.0.0.1:12346` (guest redirect)
+- BSBF tproxy `127.0.0.1:12345` (`protocol: tunnel`, `sockopt.tproxy`)
+- portal `10.0.0.1:12346` (`dokodemo-door`, `followRedirect`)
 
-or two separate processes/configs. The redirect port/`ndsRTR`/fw4 rules must
-match the portal inbound. Until that is done, the portal test above is valid
-when the BSBF client is not fighting over the config.
+`roles/bsbf` patches both `/usr/share/bsbf/xray.json` and
+`/etc/xray/config.json` to the same two inbounds, so a later
+`bsbf-bonding --enable` cannot drop the portal listener. The redirect table,
+the `ndsRTR` accept and the fw4 accept all use the portal port (12346).
+
+Verified live on the E750: both ports listen in one process; pre-auth 307,
+auth, HTTPS egress `167.235.218.44`.
+
+Two findings from the live cut-over:
+
+1. The stock init passes both `-confdir /etc/xray` and
+   `-config /etc/xray/config.json`. Xray then loads the file twice and both
+   inbounds bind the same port (only the last inbound listens). Delete
+   `xray.config.confdir` and keep the explicit conffile.
+2. `ensure_rules` matched only the rule comment, so the new 12346 accept was
+   never added after the port changed. Match on `tcp dport $PORT` as well.
+
+Live state after the fix:
+
+```text
+tcp 127.0.0.1:12345  LISTEN  xray   (BSBF tproxy inbound)
+tcp 10.0.0.1:12346   LISTEN  xray   (portal redirect inbound)
+pre-auth 307; ndsctl auth ok; HTTPS egress 167.235.218.44
+```
 
 ## Current E750 state after the experiment
 

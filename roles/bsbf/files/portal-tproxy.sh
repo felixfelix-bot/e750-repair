@@ -24,7 +24,7 @@ IFACE="${BSBF_PORTAL_IFACE:-br-portal}"
 NETWORK="${BSBF_PORTAL_NETWORK:-10.0.0.0/24}"
 PORTAL_IP="${BSBF_PORTAL_IP:-10.0.0.1}"
 PRIORITY="${BSBF_PORTAL_PRIORITY:--140}"
-PORT="${BSBF_PORTAL_TPROXY_PORT:-12345}"
+PORT="${BSBF_PORTAL_TPROXY_PORT:-12346}"
 DROP_UDP="${BSBF_PORTAL_DROP_UDP:-1}"
 MARK="bsbf-portal-redirect"
 
@@ -32,13 +32,15 @@ ensure_rules() {
 	# TPROXY/REDIRECT makes the flow local. fw4's input chain accepts portal
 	# traffic, but nodogsplash's `ip filter ndsRTR` drops all TCP except its
 	# allowlist first. Accept the redirect port explicitly, before that drop.
+	# Match on the port too: an older release accepted 12345, and the portal
+	# now uses 12346, so a comment-only check would leave the new port blocked.
 	if nft list chain ip filter ndsRTR >/dev/null 2>&1; then
-		if ! nft list chain ip filter ndsRTR | grep -q "$MARK"; then
+		if ! nft list chain ip filter ndsRTR | grep -q "tcp dport $PORT .*$MARK"; then
 			nft insert rule ip filter ndsRTR tcp dport "$PORT" counter accept comment "$MARK" 2>/dev/null || true
 		fi
 	fi
 	if nft list chain inet fw4 input >/dev/null 2>&1; then
-		if ! nft list chain inet fw4 input | grep -q "$MARK"; then
+		if ! nft list chain inet fw4 input | grep -q "tcp dport $PORT .*$MARK"; then
 			nft insert rule inet fw4 input iifname "$IFACE" tcp dport "$PORT" counter accept comment "$MARK" 2>/dev/null || true
 		fi
 	fi

@@ -18,7 +18,8 @@ def test_helper_is_present_and_executable() -> None:
     text = script.read_text()
     assert "priority $PRIORITY" in text or "priority -140" in text
     assert "0x00030000" in text
-    assert "redirect to :$PORT" in text or "redirect to :12345" in text
+    assert "redirect to :$PORT" in text
+    assert 'PORT="${BSBF_PORTAL_TPROXY_PORT:-12346}"' in text
     assert "ndsRTR" in text
     assert "inet fw4 input" in text
     assert "th dport != 53" in text
@@ -29,9 +30,12 @@ def test_role_enables_and_persists_it() -> None:
     assert "bsbf_portal_tproxy: true" in defaults
     assert 'bsbf_portal_interface: "br-portal"' in defaults
     assert 'bsbf_portal_network: "10.0.0.0/24"' in defaults
+    assert "bsbf_portal_tproxy_port: 12346" in defaults
     tasks = read("roles/bsbf/tasks/main.yml")
     assert "portal-tproxy.sh" in tasks
     assert "route_localnet" in tasks
+    assert "xray-two-inbounds" in tasks
+    assert '"127.0.0.1","port":12345' in tasks
     boot = read("roles/bsbf/files/bsbf-bonding-nft")
     assert "portal-tproxy.sh" in boot
 
@@ -50,6 +54,7 @@ def test_docs_and_evidence_record_the_result() -> None:
         "priority -140",
         "0x30000",
         "redirect to :12345",
+        "12346",
         "ndsRTR",
         "167.235.218.44",
         "evidence/portal/2026-10-30_tproxy-fix.txt",

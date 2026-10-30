@@ -27,6 +27,9 @@ bsbf_portal_tproxy: true
 bsbf_portal_interface: "br-portal"
 bsbf_portal_network: "10.0.0.0/24"
 bsbf_portal_ip: "10.0.0.1"
+# Portal redirect port. BSBF keeps 127.0.0.1:12345; the portal uses a second
+# inbound in the same xray process so neither can reset the other.
+bsbf_portal_tproxy_port: 12346
 
 # Packages required for MBIM, MPTCP endpoint management, and the BSBF client.
 bsbf_packages:

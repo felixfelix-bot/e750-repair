@@ -113,10 +113,10 @@ Full per-host table: [`KERNEL-MATRIX.md`](KERNEL-MATRIX.md).
       `ndsRTR`/`fw4` accepts for the redirect port. Verified on the E750:
       pre-auth 307, auth, HTTP/HTTPS egress `167.235.218.44`. Evidence:
       `evidence/portal/2026-10-30_tproxy-fix.txt`.
-- [ ] **One xray process, two inbounds** (BSBF `127.0.0.1:12345` + portal
-      `10.0.0.1:12346`) or two processes, so a BSBF restart cannot reset the
-      portal listener. The current BSBF/portal config conflict is the remaining
-      production blocker.
+- [x] **One xray process, two inbounds** (BSBF `127.0.0.1:12345` + portal
+      `10.0.0.1:12346`). The role patches both the BSBF template and the live
+      config; `xray.config.confdir` is removed so the file is not loaded twice;
+      `ensure_rules` matches the port, not just the comment.
 - [ ] Re-verify from a veth client **and** a real phone after the two-inbound
       fix: post-auth egress must be `167.235.218.44`, and pre-auth must stay
       blocked.

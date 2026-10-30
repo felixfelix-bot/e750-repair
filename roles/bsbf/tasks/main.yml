@@ -208,23 +208,40 @@
   when: bsbf_portal_tproxy | bool
   changed_when: false
 
-- name: Point xray's redirect inbound at the portal address
+- name: Ensure xray has both the BSBF and portal inbounds
   ansible.builtin.raw: |
     set -e
-    [ -f /etc/xray/config.json ] || exit 0
-    [ -f /etc/xray/config.json.bak ] || cp /etc/xray/config.json /etc/xray/config.json.bak
-    jq '.inbounds[0].listen="{{ bsbf_portal_ip }}"
-        | .inbounds[0].protocol="dokodemo-door"
-        | .inbounds[0].settings.network="tcp"
-        | .inbounds[0].settings.followRedirect=true
-        | del(.inbounds[0].streamSettings.sockopt.tproxy)' \
-      /etc/xray/config.json > /etc/xray/config.json.new
-    mv /etc/xray/config.json.new /etc/xray/config.json
-    /etc/init.d/xray restart 2>/dev/null || /etc/init.d/xray reload 2>/dev/null || true
-    sleep 3
-    netstat -ltn 2>/dev/null | grep ':12345 ' >/dev/null || {
-      echo 'xray did not listen on 12345'; exit 1; }
-    echo xray-redirect-patched
+    # One xray process, two inbounds: BSBF owns 127.0.0.1:12345, the portal
+    # owns {{ bsbf_portal_ip }}:{{ bsbf_portal_tproxy_port }}. Neither service
+    # can reset the other's listener. Patch the package template too, so a
+    # later `bsbf-bonding --enable` reproduces the same two-inbound config.
+    JQ_BOTH='.inbounds = [
+      {"listen":"127.0.0.1","port":12345,"protocol":"tunnel",
+       "settings":{"network":"tcp,udp","followRedirect":true},
+       "streamSettings":{"sockopt":{"tproxy":"tproxy"}}},
+      {"listen":"{{ bsbf_portal_ip }}","port":{{ bsbf_portal_tproxy_port }},
+       "protocol":"dokodemo-door",
+       "settings":{"network":"tcp","followRedirect":true}}
+    ]'
+    for f in /usr/share/bsbf/xray.json /etc/xray/config.json; do
+      [ -f "$f" ] || continue
+      [ -f "$f.bak" ] || cp "$f" "$f.bak"
+      jq "$JQ_BOTH" "$f" > "$f.new" && mv "$f.new" "$f"
+    done
+    # The stock init passes both -confdir /etc/xray and -config
+    # /etc/xray/config.json; that loads the file twice and makes both inbounds
+    # bind the same port. Keep only the explicit conffile.
+    uci -q delete xray.config.confdir
+    uci commit xray
+    if [ -f /etc/xray/config.json ]; then
+      /etc/init.d/xray restart 2>/dev/null || /etc/init.d/xray reload 2>/dev/null || true
+      sleep 3
+      netstat -ltn 2>/dev/null | grep ':12345 ' >/dev/null || {
+        echo 'xray did not listen on 12345'; exit 1; }
+      netstat -ltn 2>/dev/null | grep ':{{ bsbf_portal_tproxy_port }} ' >/dev/null || {
+        echo 'xray did not listen on {{ bsbf_portal_tproxy_port }}'; exit 1; }
+    fi
+    echo xray-two-inbounds
   when: bsbf_portal_tproxy | bool
   changed_when: true
 
@@ -234,6 +251,7 @@
     BSBF_PORTAL_IFACE='{{ bsbf_portal_interface }}' \
     BSBF_PORTAL_NETWORK='{{ bsbf_portal_network }}' \
     BSBF_PORTAL_IP='{{ bsbf_portal_ip }}' \
+    BSBF_PORTAL_TPROXY_PORT='{{ bsbf_portal_tproxy_port }}' \
       /etc/bsbf/portal-tproxy.sh
     nft list chain inet bsbf_portal prerouting | head -8
     nft list chain ip filter ndsRTR 2>/dev/null | grep 'bsbf-portal-redirect' | head -1

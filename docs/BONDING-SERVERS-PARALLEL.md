@@ -134,10 +134,11 @@ blocked; `ndsctl auth`; post-auth `curl https://1.1.1.1/cdn-cgi/trace` returns
 > `nft insert rule ip filter ndsRTR tcp dport 12345 accept` and an
 > `inet fw4 input` accept for the portal. Verified on the E750: pre-auth 307,
 > auth, HTTP/HTTPS egress `167.235.218.44`. The BSBF client and the portal
-> still share `/etc/xray/config.json`; the production follow-up is one xray
-> process with two inbounds (BSBF `127.0.0.1:12345` + portal
-> `10.0.0.1:12346`) or two processes. Evidence:
-> `evidence/portal/2026-10-30_tproxy-fix.txt`.
+> now share **one xray process with two inbounds**: BSBF
+> `127.0.0.1:12345` (tproxy) and portal `10.0.0.1:12346` (dokodemo-door). The
+> role patches both `/usr/share/bsbf/xray.json` and `/etc/xray/config.json`,
+> so a later `bsbf-bonding --enable` reproduces the same two-inbound config.
+> Evidence: `evidence/portal/2026-10-30_tproxy-fix.txt`.
 
 ## Reproducibility contract
 

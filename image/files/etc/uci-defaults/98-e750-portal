@@ -83,17 +83,27 @@ printf 'net.ipv4.tcp_migrate_req=0\nnet.ipv4.tcp_syncookies=1\n' > /etc/sysctl.d
 
 # Services and cron.
 
-# Point xray's tproxy inbound at br-portal. The package default listens on
-# 127.0.0.1, which cannot receive a TPROXY flow for a public destination.
+# One xray process, two inbounds: BSBF keeps 127.0.0.1:12345 and the portal
+# redirect listens on 10.0.0.1:12346. Neither service can reset the other.
+# The stock init passes both -confdir /etc/xray and -config
+# /etc/xray/config.json, which loads the file twice and makes both inbounds
+# try to bind the same port. Keep only the explicit conffile.
+uci -q delete xray.config.confdir
+uci commit xray
+
 if [ -f /etc/xray/config.json ] && command -v jq >/dev/null 2>&1; then
-	[ -f /etc/xray/config.json.bak ] || cp /etc/xray/config.json /etc/xray/config.json.bak
-	jq '.inbounds[0].listen="10.0.0.1"
-	    | .inbounds[0].protocol="dokodemo-door"
-	    | .inbounds[0].settings.network="tcp"
-	    | .inbounds[0].settings.followRedirect=true
-	    | del(.inbounds[0].streamSettings.sockopt.tproxy)' \
-		/etc/xray/config.json > /etc/xray/config.json.new && \
-		mv /etc/xray/config.json.new /etc/xray/config.json
+	JQ_BOTH='.inbounds = [
+	  {"listen":"127.0.0.1","port":12345,"protocol":"tunnel",
+	   "settings":{"network":"tcp,udp","followRedirect":true},
+	   "streamSettings":{"sockopt":{"tproxy":"tproxy"}}},
+	  {"listen":"10.0.0.1","port":12346,"protocol":"dokodemo-door",
+	   "settings":{"network":"tcp","followRedirect":true}}
+	]'
+	for f in /usr/share/bsbf/xray.json /etc/xray/config.json; do
+		[ -f "$f" ] || continue
+		[ -f "$f.bak" ] || cp "$f" "$f.bak"
+		jq "$JQ_BOTH" "$f" > "$f.new" && mv "$f.new" "$f"
+	done
 fi
 
 /etc/init.d/e750-portal-tproxy enable
