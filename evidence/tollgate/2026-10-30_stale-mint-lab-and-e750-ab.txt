@@ -1,0 +1,61 @@
+# Stale-mint fix — QEMU lab + E750 A/B (2026-10-30)
+
+Cross-referenced PRs
+- gonuts-tollgate#45   isNetworkError(EOF)
+- tollgate-module-basic-go#1142   pin + integration test
+- physical-router-test-automation#330   lab regression test
+
+## Upstream tests
+
+gonuts:
+  go test ./wallet/ -run 'TestIsNetworkErrorEOF|TestLoadWalletSkipsUnreachableStoredMint'
+  -> ok (also full ./wallet/ suite: ok 104s)
+
+module:
+  TestNewToleratesUnreachableStoredMint
+  RED on gonuts v0.14.1 with the production error:
+    failed to create wallet: error getting keyset from mint: Get ".../v1/keys/...": EOF
+  GREEN with v0.14.2-0.20261030003712-ae77396240a2
+
+## PRTA local QEMU lab (OpenWrt 24.10.1 x86_64)
+
+The regression test is self-contained (two FakeMintServers: healthy + stale
+with an inactive keyset stored without keys; then EOF).
+
+A) stock tollgate-wrt v0.6.0, md5 5b12703af453cc11fa00a4020f0d92fb
+   pytest tests/api/test_mint_stale_keyset_offline.py
+   FAILED at the portal assertion:
+     {"kind":21023, tags:[["level","warning"],["code","no-reachable-mints"]],
+      content:"TollGate is initializing. No reachable mints detected."}
+   1 failed in 68.75s
+
+B) v0.6.0 + gonuts isNetworkError(EOF), md5 32a53cd9cb2fd26ec302b154bc2704fe
+   1 passed in 53.83s
+   -> kind 10021, inactive keyset retained in wallet.db
+
+Environment note: the lab host firewall had to allow 10.99.99.0/24 on the
+tg-poc-br bridge so the VM can reach the fake mints on 10.99.99.2.
+
+## E750 A/B (physical GL-E750)
+
+wallet.db keeps two inactive minibits keysets; minibits answers EOF; the
+accepted mints are coinos, macadamia, westernbtc, kashu.me, cubabitcoin.
+
+A) old v0.6.0-g9364f2e, md5 09a2f0b781be717086569e52eed3f147
+   GET / -> kind 21023, code no-reachable-mints
+   log: Wallet initialization failed (.../v1/keys/00107937db0cc865: EOF)
+        — starting in degraded mode
+
+B) fixed v0.6.0 + patched gonuts, md5 286b8f28eb8bbeece43d85bfe7dedbbe
+   log: Skipping keyset 00107937db0cc865 until connection is restored.
+        Skipping keyset 00500550f0494146 until connection is restored.
+        registered mint macadamia / westernbtc / kashu / cubabitcoin
+   GET / -> kind 10021
+   portal http://10.0.0.1:2051/splash.html -> 200
+   tollgate wallet info -> Total: 1 sats across 1 mints
+                           https://mint.minibits.cash/Bitcoin: 1
+   wallet.db untouched: both minibits keyset records still present
+
+## Artifacts
+- E750 binary: /usr/bin/tollgate-wrt (backup /usr/bin/tollgate-wrt.bak-1793320972)
+- lab ipk: tollgate-wrt_0.6.0_x86_64-x86-64.ipk with the patched binary

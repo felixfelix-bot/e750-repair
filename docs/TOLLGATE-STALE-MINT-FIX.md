@@ -40,10 +40,10 @@ No `wallet.db` deletion anywhere: the record (and the 1 sat proof) must be kept.
 - [x] module: PR OpenTollGate/tollgate-module-basic-go#1142
 - [x] PRTA: `lib/fake_mint.py` EOF + keysets modes
 - [x] PRTA: `tests/api/test_mint_stale_keyset_offline.py`
-- [x] PRTA: collected; PR OpenTollGate/physical-router-test-automation#330 (full lab run pending)
+- [x] PRTA: PR OpenTollGate/physical-router-test-automation#330; self-contained test passes on the QEMU lab with the fix and fails on stock v0.6.0
 - [x] E750: patched `tollgate-wrt` built and installed
 - [x] E750: SPA 200, kind 10021, 1 sat at minibits preserved
-- [ ] e750-repair: merge this evidence PR
+- [x] e750-repair: evidence merged; see `evidence/tollgate/2026-10-30_stale-mint-lab-and-e750-ab.txt`
 
 ## Evidence to capture
 
@@ -52,3 +52,19 @@ No `wallet.db` deletion anywhere: the record (and the 1 sat proof) must be kept.
 - PRTA `pytest --collect-only tests/api/test_mint_stale_keyset_offline.py`
 - E750: API event not `no-reachable-mints`, `wallet info` still lists minibits,
   portal 200, post-auth egress.
+
+## Lab + E750 A/B results (2026-10-30)
+
+| target | stock v0.6.0 | v0.6.0 + isNetworkError(EOF) |
+|---|---|---|
+| QEMU lab (x86_64) | FAIL: kind 21023, `no-reachable-mints` | PASS: kind 10021 |
+| GL-E750 (mips) | FAIL: degraded mode, `no-reachable-mints` | OK: kind 10021, portal 200, 1 sat retained |
+
+The PRTA test is now self-contained: two `FakeMintServer`s (healthy + stale with
+an inactive keyset without public keys), no external mint or cdk-mintd needed.
+The E750 `wallet.db` was never deleted; both minibits keyset records and the
+1 sat proof are intact.
+
+Also fixed in the fake mint: `/v1/keys` must only list active keysets **with**
+keys (NUT-01), because gonuts' `Keyset.UnmarshalJSON` fails with
+`unexpected end of JSON input` on an entry without a `keys` object.
